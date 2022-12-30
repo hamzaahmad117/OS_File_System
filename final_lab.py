@@ -19,7 +19,7 @@ manual_dict = {'freemem': 'freemem:\n    Purpose: View number of free blocks in 
 
 
 open_file_table = {}
-
+users = {}
 
 # This function is used to allocate blocks to store the string data
 def allocateBlock(data):
@@ -63,7 +63,7 @@ def show_open_files():
         count = 0
         for i in open_file_table.keys():
             count += 1
-            response += str(count) + '. ' + open_file_table[i] + ' ' + str(i.file_blocks) + '\n'
+            response += str(count) + '. ' + open_file_table[i][0] + ',  Mode: ' +  str(open_file_table[i][1]) + ', Blocks in memory: ' + str(i.file_blocks) + '\n'
     
     return response
 
@@ -270,10 +270,10 @@ def remove_file_or_directory(current_node, arg):
     
 
 
-def start(current_node, root_node, user_command):
+def start(current_node, root_node, user_command, userInfo):
     command = " ".join(user_command.split())
     a = command.split(' ')
-    end = False
+    end = 0
     response = ''
     # current_node.pwd() + ">" + user_command + "\n"
 
@@ -380,18 +380,21 @@ def start(current_node, root_node, user_command):
                 file_node = find_node(current_node, filename)
                 if file_node[1] == 1:
                     if file_node[0] in open_file_table.keys():
-                        data = view_file(current_node, filename)
-                        if len(command) == 2:
-                            for i in file_node[0].file_blocks:
-                                deleteBlock(i)
-                            file_node[0].file_blocks = allocateBlock(new_data)
-                        elif len(command) == 3:
-                            f_data = data[:int(command[2])] + new_data
-                            for i in file_node[0].file_blocks:
-                                deleteBlock(i)
-                            file_node[0].file_blocks = allocateBlock(f_data)
-                        else: 
-                            raise IndexError
+                        if open_file_table[file_node[0]][1] == 'w':
+                            data = view_file(current_node, filename)
+                            if len(command) == 2:
+                                for i in file_node[0].file_blocks:
+                                    deleteBlock(i)
+                                file_node[0].file_blocks = allocateBlock(new_data)
+                            elif len(command) == 3:
+                                f_data = data[:int(command[2])] + new_data
+                                for i in file_node[0].file_blocks:
+                                    deleteBlock(i)
+                                file_node[0].file_blocks = allocateBlock(f_data)
+                            else: 
+                                raise IndexError
+                        else:
+                            response += f'File {filename} is not open in write mode. Close it and open it in write mode to continue.'    
                         update_structures(root_node)
                     else:
                         response += f'File {filename} is not open in memory! Open it to write data to it.'
@@ -405,19 +408,21 @@ def start(current_node, root_node, user_command):
             file_node = find_node(current_node, a[1])
             
             if file_node[0] in open_file_table.keys():
-                
-                data = view_file(current_node, a[1])
+                if open_file_table[file_node[0]][1] == 'r':
+                    data = view_file(current_node, a[1])
 
-                if data:
-                    if len(a) == 2:
-                        response += data
-                    elif len(a) == 4:
-                        response += data[int(a[2]):int(a[3])]
-                    else:
-                        raise IndexError   
-                if data == '' and data != None:
+                    if data:
+                        if len(a) == 2:
+                            response += data
+                        elif len(a) == 4:
+                            response += data[int(a[2]):int(a[3])]
+                        else:
+                            raise IndexError   
+                    if data == '' and data != None:
 
-                    response += ("File is empty!")
+                        response += ("File is empty!")
+                else:
+                    response += f'File {filename} is not open in read mode. Close it and open it in read mode to continue.'
             elif file_node[1] == 1:
                 response += f'File {a[1]} is not open in memory.'
             else:
@@ -426,18 +431,30 @@ def start(current_node, root_node, user_command):
         except IndexError:
             response += ("Error: Invalid number of arguments with 'read_from_file' command.")
     
-
+    # 0, not open, 1 in read mode, 2 in write mode, 3: just got closed.
     elif a[0] == 'open':
         try:
             file_node = find_node(current_node, a[1])[0]
-            if file_node != None:
-                if file_node not in open_file_table.keys():
-                    open_file_table[file_node] = current_node.pwd() + a[1]
-                    response += f'File "{a[1]}" is now open in memory.\n' + show_open_files() # show memory map
+            if a[2] == 'w' or a[2] == 'r':
+                if file_node != None:
+                    if file_node not in open_file_table.keys():
+                        if len(users[userInfo]) < 5:
+                            open_file_table[file_node] = [current_node.pwd() + a[1] , a[2], [userInfo]]
+                            response += f'File "{a[1]}" is now open in memory.\n' + show_open_files() # show memory map
+                            users[userInfo].append(file_node)
+                            if a[2] == 'w':
+                                end = 1
+                            else:
+                                end = 2
+                        else:
+
+                            response += f'User {userInfo} has reached the limit for opening 5 files.'
+                    else:
+                        response += f'File "{a[1]}" is already Open in memory.\n' + show_open_files()
                 else:
-                    response += f'File "{a[1]}" is already Open in memory.\n' + show_open_files()
+                    response += f'File {a[1]} does not exist in this directory.'
             else:
-                response += f'File {a[1]} does not exist in this directory.'
+                response += 'You can only open in read mode "r" or write mode "w".'
                 
         except IndexError:
             response += ("Error: Invalid number of arguments with 'open' command.")
@@ -447,8 +464,11 @@ def start(current_node, root_node, user_command):
             file_node = find_node(current_node, a[1])
             if file_node[0] != None and file_node[1] == 1:
                 if file_node[0] in open_file_table.keys():
+                    userfileList = users[userInfo]
+                    userfileList.remove(file_node[0])
                     del open_file_table[file_node[0]]
                     response += f'File {a[1]} is now closed.\nOpen File Table:\n' + show_open_files() + '\n\n'
+                    end = 3
                 else:
                     response += f'File "{a[1]}" is not open in memory.\n'
             else:
@@ -515,67 +535,8 @@ except:
 
 
 
-# creating socket
-# s = socket.socket()
-# print('Sockets Created')
-# s.bind(('localhost', 9999))
-# s.listen(3)
-
-# print('Waiting for connections')
 
 
-# c, addr = s.accept()
-# print('Connected with ', addr)
-# while (True):
-#     name = c.recv(1024).decode()
-#     if name=='exit':
-#         c.close()
-#     else:
-#         print(f'Command recieved from {addr}: {name}')
-#         info = start(info[0], root, name.strip())
-#         c.send(bytes(f'{info[2]}\n{info[0].pwd()}>', 'utf-8'))
-
-
-# while True:
-#     command = input()
-
-#     if command == 'exit':
-#         break
-#     elif command == 'clear':
-#         os.system('cls')
-#     else:
-#         info = start(info[0], root, command.strip())
-#         print(info[2])
-#     print(info[0].pwd() + ">", end='')
-
-# total_threads = int(input("You should have your commands written in following file format:\n   input_thread[thread number].txt\n  Thread numbers start from 1.\nNote: You don't have to create output_thread.txt files. The program will create them itself.\nNow please enter the number of threads you want to create: "))
-
-# threads = []
-
-
-# def thr(commands, info, filename):
-#     responses = ''
-#     for i in commands:
-#         info = start(info[0], root, i.strip())
-#         responses += info[2] + '\n'
-#     with open(filename, 'w') as f:
-#         f.write(responses)
-
-
-# for i in range(total_threads):
-#     try:
-#         commands = open(f'input_thread{i + 1}.txt').readlines()
-#         threads.append(threading.Thread(target= thr, args=(commands, info, (f'output_thread{i + 1}.txt'))))
-#     except:
-#         print(f"\nError! File input_thread{i + 1}.txt does not exist.\nPlease make the same number of input files as the number of threads starting from 1 to number of threads you wish to create.The format should be as follows:\ninput_thread[thread_tnumber].txt\nExample:\nIf you want 2 threads, make input files as: input_thread1.txt, input_thread2.txt in the same folder as this python file.\nClosing!\n")
-#         exit()
-# for i in threads:
-#     i.start()
-
-# for i in threads:
-#     i.join()
-
-users = []
 
 ServerSideSocket = socket.socket()
 host = '127.0.0.1'
@@ -591,23 +552,24 @@ def multi_threaded_client(connection):
     connection.send(str.encode('Welcome to the file system! Please enter your name: '))
     name = connection.recv(2048)
     name = name.decode('utf-8')
-    users.append(name)
+    users[name] = []
     print(f'User {name} has connected!')
     print(users)
-    info = start(root,root,'man')
+    info = start(root,root,'man','')
     connection.send(str.encode(root.pwd()))
     while True:
         
         data = connection.recv(10240)
         dataDecoded = data.decode('utf-8')
-        info = start(info[0], root, dataDecoded.strip())
+        info = start(info[0], root, dataDecoded.strip(), name)
         response = info[2] + '\n' + info[0].pwd() + '>'
         if not data or dataDecoded == 'exit':
             if dataDecoded == 'exit':
                 response = 'Exiting.'
             print(name + ' disconnected!')
-            
-            users.remove(name)
+            for i in users[name]:
+                del(open_file_table[i])
+            del(users[name])
             print(users)
             update_structures(root)
             break
@@ -616,7 +578,7 @@ def multi_threaded_client(connection):
     connection.close()
 while True:
     Client, address = ServerSideSocket.accept()
-    print('Connected to: ' + address[0] + ':' + str(address[1]))
+    print('Connected to: ' + address[0] + ': ' + str(address[1]))
     start_new_thread(multi_threaded_client, (Client, ))
     ThreadCount += 1
     print('Thread Number: ' + str(ThreadCount))
