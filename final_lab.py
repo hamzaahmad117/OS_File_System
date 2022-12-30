@@ -63,7 +63,7 @@ def show_open_files():
         count = 0
         for i in open_file_table.keys():
             count += 1
-            response += str(count) + '. ' + open_file_table[i][0] + ',  Mode: ' +  str(open_file_table[i][1]) + ', Blocks in memory: ' + str(i.file_blocks) + '\n'
+            response += str(count) + '. ' + open_file_table[i][0] + ',  Mode: ' +  str(open_file_table[i][1]) + '. Accessed by: ' + str(len(open_file_table[i][2])) + ' user(s).' + ', Blocks in memory: ' + str(i.file_blocks) + '\n'
     
     return response
 
@@ -380,21 +380,24 @@ def start(current_node, root_node, user_command, userInfo):
                 file_node = find_node(current_node, filename)
                 if file_node[1] == 1:
                     if file_node[0] in open_file_table.keys():
-                        if open_file_table[file_node[0]][1] == 'w':
-                            data = view_file(current_node, filename)
-                            if len(command) == 2:
-                                for i in file_node[0].file_blocks:
-                                    deleteBlock(i)
-                                file_node[0].file_blocks = allocateBlock(new_data)
-                            elif len(command) == 3:
-                                f_data = data[:int(command[2])] + new_data
-                                for i in file_node[0].file_blocks:
-                                    deleteBlock(i)
-                                file_node[0].file_blocks = allocateBlock(f_data)
-                            else: 
-                                raise IndexError
+                        if userInfo in open_file_table[file_node[0]][2]:
+                            if open_file_table[file_node[0]][1] == 'w':
+                                data = view_file(current_node, filename)
+                                if len(command) == 2:
+                                    for i in file_node[0].file_blocks:
+                                        deleteBlock(i)
+                                    file_node[0].file_blocks = allocateBlock(new_data)
+                                elif len(command) == 3:
+                                    f_data = data[:int(command[2])] + new_data
+                                    for i in file_node[0].file_blocks:
+                                        deleteBlock(i)
+                                    file_node[0].file_blocks = allocateBlock(f_data)
+                                else: 
+                                    raise IndexError
+                            else:
+                                response += f'File {filename} is not open in write mode. Close it and open it in write mode to continue.'  
                         else:
-                            response += f'File {filename} is not open in write mode. Close it and open it in write mode to continue.'    
+                            response += f'File "{filename} is not open for you in write mode. Please wait until other users close it."'  
                         update_structures(root_node)
                     else:
                         response += f'File {filename} is not open in memory! Open it to write data to it.'
@@ -408,21 +411,24 @@ def start(current_node, root_node, user_command, userInfo):
             file_node = find_node(current_node, a[1])
             
             if file_node[0] in open_file_table.keys():
-                if open_file_table[file_node[0]][1] == 'r':
-                    data = view_file(current_node, a[1])
+                if userInfo in open_file_table[file_node[0]][2]:
+                    if open_file_table[file_node[0]][1] == 'r':
+                        data = view_file(current_node, a[1])
 
-                    if data:
-                        if len(a) == 2:
-                            response += data
-                        elif len(a) == 4:
-                            response += data[int(a[2]):int(a[3])]
-                        else:
-                            raise IndexError   
-                    if data == '' and data != None:
+                        if data:
+                            if len(a) == 2:
+                                response += data
+                            elif len(a) == 4:
+                                response += data[int(a[2]):int(a[3])]
+                            else:
+                                raise IndexError   
+                        if data == '' and data != None:
 
-                        response += ("File is empty!")
+                            response += ("File is empty!")
+                    else:
+                        response += f'File {a[1]} is not open in read mode. Close it and open it in read mode to continue.'
                 else:
-                    response += f'File {filename} is not open in read mode. Close it and open it in read mode to continue.'
+                    response += f'File {a[1]} is not open for you in read mode. Please try to open it if limit has not reached.'
             elif file_node[1] == 1:
                 response += f'File {a[1]} is not open in memory.'
             else:
@@ -432,6 +438,9 @@ def start(current_node, root_node, user_command, userInfo):
             response += ("Error: Invalid number of arguments with 'read_from_file' command.")
     
     # 0, not open, 1 in read mode, 2 in write mode, 3: just got closed.
+    elif a[0] == 'clear':
+        pass
+
     elif a[0] == 'open':
         try:
             file_node = find_node(current_node, a[1])[0]
@@ -449,8 +458,26 @@ def start(current_node, root_node, user_command, userInfo):
                         else:
 
                             response += f'User {userInfo} has reached the limit for opening 5 files.'
+                    elif len(open_file_table[file_node][2]) < 3:
+                        if open_file_table[file_node][1] != a[2]:
+                            response += f'File "{a[1]}" is already Open in memory in {open_file_table[file_node][1]} mode. Please wait until it is closed by all users.\n'
+
+                        else:
+                            if len(users[userInfo]) < 5:
+                                fileInfo = open_file_table[file_node]
+                                open_file_table[file_node] = [fileInfo[0], fileInfo[1], fileInfo[2] + [userInfo]]
+                                response += f'File "{a[1]}" is now open in memory.\n' + show_open_files() # show memory map
+                                users[userInfo].append(file_node)
+                                if a[2] == 'w':
+                                    end = 1
+                                else:
+                                    end = 2
+                            else:
+
+                                response += f'User {userInfo} has reached the limit for opening 5 files.'
+
                     else:
-                        response += f'File "{a[1]}" is already Open in memory.\n' + show_open_files()
+                        response += f'File "{a[1]}" is already Open in memory for 3 users.\n' + show_open_files()
                 else:
                     response += f'File {a[1]} does not exist in this directory.'
             else:
@@ -466,8 +493,12 @@ def start(current_node, root_node, user_command, userInfo):
                 if file_node[0] in open_file_table.keys():
                     userfileList = users[userInfo]
                     userfileList.remove(file_node[0])
-                    del open_file_table[file_node[0]]
-                    response += f'File {a[1]} is now closed.\nOpen File Table:\n' + show_open_files() + '\n\n'
+                    if len(open_file_table[file_node[0]][2]) > 1:
+                        open_file_table[file_node[0]][2].remove(userInfo)
+                        print(open_file_table)
+                    else:
+                        del open_file_table[file_node[0]]
+                        response += f'File {a[1]} is now closed.\nOpen File Table:\n' + show_open_files() + '\n\n'
                     end = 3
                 else:
                     response += f'File "{a[1]}" is not open in memory.\n'
@@ -504,7 +535,7 @@ def start(current_node, root_node, user_command, userInfo):
         
 
     else:
-        response += (f"Error: Command '{a[0]}' does not exist in this directory.")
+        response += (f"Error: Command '{a[0]}' does not exist.")
 
     return [current_node, end, response]
 
@@ -568,7 +599,10 @@ def multi_threaded_client(connection):
                 response = 'Exiting.'
             print(name + ' disconnected!')
             for i in users[name]:
-                del(open_file_table[i])
+                if len(open_file_table[i][2]) > 1:
+                    open_file_table[i][2].remove(name)
+                else:
+                    del(open_file_table[i])
             del(users[name])
             print(users)
             update_structures(root)
